@@ -1,26 +1,80 @@
 <?php
 namespace App\Filament\Resources\CustomerResource\RelationManagers;
 
-use App\Models\BranchService;
-use App\Models\HappyHour;
-use App\Models\HappyHourService;
 use App\Models\Order;
 use App\Models\Service;
 use App\Models\Therapist;
-use Carbon\Carbon;
-use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\View;
+use Filament\Forms\Components\ViewField;
 use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Actions\CreateAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
-use Illuminate\Support\HtmlString;
 
 class OrderRelationManager extends RelationManager
 {
     protected static string $relationship = 'orders';
+
+    public function pricePreview($get)
+    {
+        $serviceIds = $get('services_data');
+        $branchId   = $get('branch_id');
+
+        $items = [];
+        $total = 0;
+
+        if (! $branchId || empty($serviceIds)) {
+            return ['items' => [], 'total' => 0];
+        }
+
+        $now     = now();
+        $today   = strtolower($now->format('l'));
+        $timeNow = $now->format('H:i:s');
+
+        $happyHour = \App\Models\HappyHour::where('branch_id', $branchId)
+            ->whereJsonContains('days', $today)
+            ->where('start_time', '<=', $timeNow)
+            ->where('end_time', '>=', $timeNow)
+            ->first();
+
+        foreach ($serviceIds as $serviceId) {
+            $branchService = \App\Models\BranchService::where('branch_id', $branchId)
+                ->where('service_id', $serviceId)
+                ->first();
+
+            if (! $branchService) {
+                continue;
+            }
+
+            $price = $branchService->price;
+
+            if ($happyHour) {
+                $happyHourService = \App\Models\HappyHourService::where('happy_hour_id', $happyHour->id)
+                    ->where('branch_service_id', $branchService->id)
+                    ->first();
+
+                if ($happyHourService) {
+                    $price = $happyHourService->promo_price;
+                }
+            }
+
+            $total += $price;
+
+            $items[] = [
+                'name'  => $branchService->service->name ?? 'Unknown Service',
+                'price' => $price,
+            ];
+        }
+
+        return [
+            'items' => $items,
+            'total' => $total,
+        ];
+
+    }
 
     public function form(Form $form): Form
     {
@@ -96,57 +150,13 @@ class OrderRelationManager extends RelationManager
                     ->required()
                     ->visible(fn(callable $get) => $get('therapist_id'))
                     ->native(false),
-                
-                Placeholder::make('price_preview')
-                    ->label('Price Preview')
-                    ->content(function (callable $get) {
-                        $serviceIds = $get('services_data');
-                        $branchId   = $get('branch_id');
 
-                        if (! $branchId || empty($serviceIds)) {
-                            return 'No services selected.';
-                        }
-
-                        $now       = Carbon::now();
-                        $today     = strtolower($now->format('l')); // e.g., "monday"
-                        $timeNow   = $now->format('H:i:s');
-                        $total     = 0;
-                        $happyHour = HappyHour::where('branch_id', $branchId)
-                            ->whereJsonContains('days', $today)
-                            ->where('start_time', '<=', $timeNow)
-                            ->where('end_time', '>=', $timeNow)
-                            ->first();
-
-                        $html = '<ul>';
-                        foreach ($serviceIds as $serviceId) {
-                            $branchService = BranchService::where('branch_id', $branchId)
-                                ->where('service_id', $serviceId)
-                                ->first();
-
-                            if (! $branchService) {
-                                continue;
-                            }
-
-                            $price = $branchService->price;
-
-                            if ($happyHour) {
-                                $happyHourService = HappyHourService::where('happy_hour_id', $happyHour->id)
-                                    ->where('branch_service_id', $branchService->id)
-                                    ->first();
-
-                                if ($happyHourService) {
-                                    $price = $happyHourService->promo_price;
-                                }
-                            }
-                            $total       = $total + $price;
-                            $serviceName = $branchService->service->name ?? 'Unknown Service';
-                            $html .= "<li><strong>{$serviceName}</strong>: Rp " . number_format($price, 0, ',', '.') . "</li>";
-                        }
-                        $html .= "<li><strong>Total</strong> Rp " . number_format($total, 0, ',', '.') . "</li>";
-                        $html .= '</ul>';
-
-                        return new HtmlString($html);
-                    })->reactive()->columnSpanFull(),
+                ViewField::make('Price')
+                    ->view('filament.forms.components.table-order-preview')
+                    ->columnSpanFull()
+                    ->visible(fn(callable $get) => $get('branch_id') && ! empty($get('services_data')))
+                    ->viewData(fn($get) => $this->pricePreview($get))
+                ,
 
             ]);
     }

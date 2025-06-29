@@ -12,5 +12,7 @@
 @endphp
 
 <x-filament::badge color="{{ $color }}">
-    {{ $status }}
+    <span style="font-size: 1rem;">
+        {{ $status }}
+    </span>
 </x-filament::badge>

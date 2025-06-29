@@ -4,5 +4,8 @@
 @tailwind variants;
 @import '../../../../vendor/filament/filament/resources/css/base.css';
 @source '../../../../vendor/awcodes/filament-table-repeater/resources/css/plugin.css';
+@import '/vendor/filament/filament/resources/css/theme.css';
 
 @config 'tailwind.config.js';
+
+
